@@ -85,6 +85,8 @@ jobs:
               .report { background: #111a2ddd; border: 1px solid #ffffff22; border-radius: 20px; margin-top: 1.5rem; padding: 1.5rem; }
               h2 { margin-top: 0; }
               pre { background: #050914; border-radius: 12px; color: #b9f6d7; margin: 0; overflow-x: auto; padding: 1rem; white-space: pre-wrap; }
+              .non-match { color: #ff8196; }
+              .match { color: #8ff0b3; font-weight: 800; text-decoration: underline; text-decoration-color: #f8e16c; text-underline-offset: 3px; }
               .trex { font-size: 5rem; line-height: 1; margin: 2rem 0 0; text-align: center; }
               .trex span { display: inline-block; transform: scaleX(-1); }
             </style>
@@ -102,9 +104,53 @@ jobs:
               <div class="trex" role="img" aria-label="A friendly T-Rex"><span>🦖</span></div>
             </main>
             <script>
+              const programInput = '29535123p48723487597645723645';
+
+              function findMatchRanges(text) {
+                const ranges = [];
+                for (let start = 0; start < text.length; start += 1) {
+                  if (!/\d/.test(text[start])) continue;
+                  for (let end = start + 1; end < text.length && /\d/.test(text[end]); end += 1) {
+                    if (text[start] === text[end]) {
+                      ranges.push([start, end]);
+                      break;
+                    }
+                  }
+                }
+                return ranges;
+              }
+
+              function addText(parent, text, className) {
+                const span = document.createElement('span');
+                span.className = className;
+                span.textContent = text;
+                parent.appendChild(span);
+              }
+
+              function renderReport(output) {
+                const target = document.querySelector('#output');
+                const ranges = findMatchRanges(programInput);
+                let matchNumber = 0;
+                const report = document.createDocumentFragment();
+
+                output.split('\n').forEach((line, index) => {
+                  if (line === programInput && matchNumber < ranges.length) {
+                    const [start, end] = ranges[matchNumber++];
+                    addText(report, line.slice(0, start), 'non-match');
+                    addText(report, line.slice(start, end + 1), 'match');
+                    addText(report, line.slice(end + 1), 'non-match');
+                  } else {
+                    report.appendChild(document.createTextNode(line));
+                  }
+                  if (index < output.split('\n').length - 1) report.appendChild(document.createTextNode('\n'));
+                });
+
+                target.replaceChildren(report);
+              }
+
               fetch('report-output.txt')
                 .then(response => response.ok ? response.text() : Promise.reject())
-                .then(output => document.querySelector('#output').textContent = output)
+                .then(renderReport)
                 .catch(() => document.querySelector('#output').textContent = 'Program output could not be loaded.');
             </script>
           </body>
