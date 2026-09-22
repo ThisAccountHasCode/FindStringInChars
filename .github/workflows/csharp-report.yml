@@ -1,0 +1,141 @@
+name: Build and publish C# journey
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-report:
+    name: Build and run the program
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out the project
+        uses: actions/checkout@v5
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Locate the C# project
+        shell: bash
+        run: |
+          project_file="$(find . -path '*/obj' -prune -o -type f -name 'FindStringInChars.csproj' -print -quit)"
+          test -n "$project_file" || { echo 'FindStringInChars.csproj was not found after checkout.' >&2; exit 1; }
+          echo "PROJECT_FILE=$project_file" >> "$GITHUB_ENV"
+
+      - name: Restore dependencies
+        run: dotnet restore "$PROJECT_FILE"
+
+      - name: Compile the program
+        run: dotnet build "$PROJECT_FILE" --configuration Release --no-restore
+
+      - name: Run the program and save its report
+        id: run_program
+        shell: bash
+        env:
+          PROGRAM_INPUT: 29535123p48723487597645723645
+        run: |
+          program_output="$(printf '%s\n' "$PROGRAM_INPUT" | dotnet run --project "$PROJECT_FILE" --configuration Release --no-build)"
+          printf '%s\n' "$program_output" > report-output.txt
+
+          {
+            echo '## 🧪 FindStringInChars — program report'
+            echo
+            echo "> **Input:** \`$PROGRAM_INPUT\`"
+            echo
+            echo '```text'
+            printf '%s\n' "$program_output"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create GitHub Pages report
+        shell: bash
+        run: |
+          mkdir -p site
+          cp report-output.txt site/report-output.txt
+          cat > site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>My C# journey begins</title>
+            <style>
+              :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+              body { align-items: center; background: radial-gradient(circle at 20% 0%, #3c267b, #101426 52%, #081415); color: #edf5ff; display: flex; margin: 0; min-height: 100vh; padding: 2rem; }
+              main { margin: auto; max-width: 760px; width: 100%; }
+              .banner { background: linear-gradient(115deg, #7545dc, #22baaa); border-radius: 24px; box-shadow: 0 20px 60px #0008; padding: clamp(2rem, 7vw, 4.5rem); text-align: center; }
+              h1 { font-size: clamp(2.4rem, 8vw, 5.4rem); letter-spacing: -.06em; line-height: .95; margin: 0; }
+              .banner p { font-size: 1.15rem; margin: 1.5rem 0 0; opacity: .9; }
+              .report { background: #111a2ddd; border: 1px solid #ffffff22; border-radius: 20px; margin-top: 1.5rem; padding: 1.5rem; }
+              h2 { margin-top: 0; }
+              pre { background: #050914; border-radius: 12px; color: #b9f6d7; margin: 0; overflow-x: auto; padding: 1rem; white-space: pre-wrap; }
+              .trex { font-size: 5rem; line-height: 1; margin: 2rem 0 0; text-align: center; }
+              .trex span { display: inline-block; transform: scaleX(-1); }
+            </style>
+          </head>
+          <body>
+            <main>
+              <section class="banner">
+                <h1>My C# journey begins</h1>
+                <p>One build, one run, and a tiny prehistoric cheerleader.</p>
+              </section>
+              <section class="report">
+                <h2>Latest program report</h2>
+                <pre id="output">Loading program output…</pre>
+              </section>
+              <div class="trex" role="img" aria-label="A friendly T-Rex"><span>🦖</span></div>
+            </main>
+            <script>
+              fetch('report-output.txt')
+                .then(response => response.ok ? response.text() : Promise.reject())
+                .then(output => document.querySelector('#output').textContent = output)
+                .catch(() => document.querySelector('#output').textContent = 'Program output could not be loaded.');
+            </script>
+          </body>
+          </html>
+          HTML
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+        with:
+          enablement: true
+          token: ${{ secrets.PAGES_ENABLEMENT_TOKEN }}
+
+      - name: Package the GitHub Pages artifact
+        shell: bash
+        run: |
+          tar \
+            --dereference --hard-dereference \
+            --directory site \
+            -cvf "$RUNNER_TEMP/artifact.tar" \
+            --exclude=.git \
+            --exclude=.github \
+            .
+
+      - name: Upload Pages artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: github-pages
+          path: ${{ runner.temp }}/artifact.tar
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
